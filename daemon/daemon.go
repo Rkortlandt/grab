@@ -6,12 +6,9 @@ import (
 	"grab/comm"
 	"net"
 	"os"
-	"os/exec"
 	"runtime"
 	"time"
 )
-
-const SocketPath = "/tmp/grab.sock"
 
 var StartTime time.Time
 var history = make([][]string, 0, 10)
@@ -24,41 +21,21 @@ func init() {
 	gob.Register(comm.GrabRequest{})
 }
 
-func Start() error {
-	executable, _ := os.Executable()
-	cmd := exec.Command(executable, "--daemon-internal")
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-
-	err := cmd.Start()
-	if err != nil {
-		return err
-	}
-
-	for i := 0; i < 100; i++ {
-		if _, err := os.Stat(SocketPath); err == nil {
-			return nil
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return fmt.Errorf("daemon failed to initialize socket at %s", SocketPath)
-}
-
-func RunServer() {
+func RunServer(SocketPath string) {
 	StartTime = time.Now()
 	os.Remove(SocketPath)
 
-	l, err := net.Listen("unix", SocketPath)
+	listener, err := net.Listen("unix", SocketPath)
 	if err != nil {
 		fmt.Printf("Fatal: Could not listen on socket: %v\n", err)
 		return
 	}
-	defer l.Close()
+	defer listener.Close()
 
 	var clipboardContent []string
 
 	for {
-		conn, err := l.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			continue
 		}

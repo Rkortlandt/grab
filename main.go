@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func init() {
@@ -21,8 +22,6 @@ func init() {
 	gob.Register(comm.SwitchHistoryRequest{})
 	gob.Register(comm.GrabRequest{})
 }
-
-// --- File Operations ---
 
 func copyFile(src string, dst string) {
 	fmt.Printf("Copying from: %v to: %v\n", src, dst)
@@ -39,8 +38,6 @@ func moveFile(src string, dst string) {
 		fmt.Printf("Error: mv failed for %s. %v\n", src, err)
 	}
 }
-
-// --- CLI Client Struct ---
 
 type Client struct {
 	encoder *gob.Encoder
@@ -69,64 +66,65 @@ func (c *Client) send(req any) error {
 
 func (c *Client) pasteFiles() {
 	c.send(comm.ClipboardRequest{})
-	var resp comm.ClipboardResponse
-	if err := c.decoder.Decode(&resp); err != nil {
+	var response comm.ClipboardResponse
+
+	if err := c.decoder.Decode(&response); err != nil {
 		fmt.Printf("Error decoding daemon response: %v\n", err)
 		return
 	}
-	if resp.Error != "" {
-		fmt.Println(resp.Error)
+	if response.Error != "" {
+		fmt.Println(response.Error)
 		return
 	}
-	if len(resp.Files) == 0 {
+	if len(response.Files) == 0 {
 		fmt.Println("Clipboard is empty!")
 		return
 	}
 
-	for _, path := range resp.Files {
+	for _, path := range response.Files {
 		destination := filepath.Join(c.wd, filepath.Base(path))
 		copyFile(path, destination)
 	}
-	fmt.Printf("✓ Pasted %d file(s)!\n", len(resp.Files))
+	fmt.Printf("✓ Pasted %d file(s)!\n", len(response.Files))
 }
 
 func (c *Client) moveFiles() {
 	c.send(comm.ClipboardRequest{})
-	var resp comm.ClipboardResponse
-	if err := c.decoder.Decode(&resp); err != nil {
+	var response comm.ClipboardResponse
+	if err := c.decoder.Decode(&response); err != nil {
 		fmt.Printf("Error decoding daemon response: %v\n", err)
 		return
 	}
-	if resp.Error != "" {
-		fmt.Println(resp.Error)
+	if response.Error != "" {
+		fmt.Println(response.Error)
 		return
 	}
-	if len(resp.Files) == 0 {
+	if len(response.Files) == 0 {
 		fmt.Println("Clipboard is empty!")
 		return
 	}
 
-	for _, path := range resp.Files {
+	for _, path := range response.Files {
 		destination := filepath.Join(c.wd, filepath.Base(path))
 		moveFile(path, destination)
 	}
-	fmt.Printf("✓ Moved %d file(s)!\n", len(resp.Files))
+	fmt.Printf("✓ Moved %d file(s)!\n", len(response.Files))
 }
 
 func (c *Client) listHistory() {
 	c.send(comm.HistoryRequest{})
-	var resp comm.HistoryResponse
-	if err := c.decoder.Decode(&resp); err != nil {
+	var response comm.HistoryResponse
+	if err := c.decoder.Decode(&response); err != nil {
 		fmt.Printf("Error decoding history: %v\n", err)
 		return
 	}
-	if resp.Error != "" {
-		fmt.Println(resp.Error)
+	if response.Error != "" {
+		fmt.Println(response.Error)
 		return
 	}
 
 	home, _ := os.UserHomeDir()
-	for index, group := range slices.Backward(resp.History) {
+	for index, group := range slices.Backward(response.History) {
 		label := fmt.Sprintf("[%d]", index)
 		if index == 0 {
 			label = "[current]"
@@ -148,47 +146,63 @@ func (c *Client) listHistory() {
 
 func (c *Client) showStatus() {
 	c.send(comm.StatusRequest{})
-	var resp comm.ActionResponse
-	if err := c.decoder.Decode(&resp); err != nil {
+	var response comm.ActionResponse
+
+	if err := c.decoder.Decode(&response); err != nil {
 		fmt.Printf("Error decoding status: %v\n", err)
 		return
 	}
-	fmt.Printf("Grab Daemon Status:\n%s\n", resp.Message)
+	fmt.Printf("Grab Daemon Status:\n%s\n", response.Message)
 }
 
 func (c *Client) switchHistory(index int) {
 	c.send(comm.SwitchHistoryRequest{Index: index})
-	var resp comm.ActionResponse
-	if err := c.decoder.Decode(&resp); err != nil {
+	var response comm.ActionResponse
+
+	if err := c.decoder.Decode(&response); err != nil {
 		fmt.Printf("Error switching history: %v\n", err)
 		return
 	}
-	if resp.Error != "" {
-		fmt.Println(resp.Error)
+	if response.Error != "" {
+		fmt.Println(response.Error)
 	} else {
-		fmt.Println(resp.Message)
+		fmt.Println(response.Message)
 	}
 }
 
 func (c *Client) performGrab(args []string) {
 	var allFiles []string
 	for _, arg := range args {
-		// Expand globs (handles the * operator)
-		matches, err := filepath.Glob(filepath.Join(c.wd, arg))
-		if err == nil && len(matches) > 0 {
+		searchPath := filepath.Join(c.wd, arg)
+		matches, err := filepath.Glob(searchPath)
+
+		if err != nil {
+			fmt.Printf("Warning: Malformed glob pattern '%s': %v\n", arg, err)
+		}
+
+		if len(matches) > 0 {
+			fmt.Printf("Pattern '%s' expanded to %d file(s)\n", arg, len(matches))
 			allFiles = append(allFiles, matches...)
-		} else {
-			// Fallback for direct paths
-			absPath := filepath.Join(c.wd, arg)
-			if _, err := os.Stat(absPath); err == nil {
-				allFiles = append(allFiles, absPath)
+			continue
+		}
+
+		info, err := os.Stat(searchPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				fmt.Printf("Error: File or pattern '%s' does not exist in directory %s\n", arg, c.wd)
+			} else {
+				fmt.Printf("Error: System error accessing '%s': %v\n", searchPath, err)
 			}
+		} else {
+			fmt.Printf("Found literal path: %s (Size: %d bytes)\n", searchPath, info.Size())
+			allFiles = append(allFiles, searchPath)
 		}
 	}
 
 	if len(allFiles) > 0 {
 		c.send(comm.GrabRequest{Files: allFiles})
 		var resp comm.ActionResponse
+
 		if err := c.decoder.Decode(&resp); err == nil && resp.Error == "" {
 			fmt.Printf("✓ %d file(s) grabbed!\n", len(allFiles))
 		} else {
@@ -202,13 +216,34 @@ func (c *Client) performGrab(args []string) {
 	}
 }
 
-func handleCLI(conn net.Conn) {
+func printHelp() {
+	// ANSI Color Codes
+	Yel := "\033[33m" // Yellow
+	Cyn := "\033[36m" // Cyan
+	Grn := "\033[32m" // Green
+	Gra := "\033[90m" // Gray
+	Res := "\033[0m"  // Reset
+
+	fmt.Print(
+		Yel + "Usage:" + Res + " grab [filenames...] | [history_number] | paste | move | list | status\n\n" +
+			Cyn + "Commands " + Gra + "-------------------------------------------------------------------" + Res + "\n" +
+			"  " + Grn + "[paste]" + Res + ": current selected history to current directory\n" +
+			"  " + Grn + "[move]" + Res + " : moves current selected history to current directory\n" +
+			"  " + Grn + "[list]" + Res + " : lists history\n" +
+			"  " + Grn + "[status]" + Res + ": get status of daemon\n\n" +
+			Cyn + "Inputs " + Gra + "---------------------------------------------------------------------" + Res + "\n" +
+			"  " + Grn + "grab [filenames...]" + Res + ", grabs files into history for use\n" +
+			"  " + Grn + "grab [history_number]" + Res + ", selects a value from history (e.g., grab 5)\n",
+	)
+}
+
+func handleInput(connection net.Conn) {
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: grab [filenames... | paste | move | list | status]")
 		return
 	}
 
-	client, err := NewClient(conn)
+	client, err := NewClient(connection)
 	if err != nil {
 		fmt.Printf("Error initializing client: %v\n", err)
 		return
@@ -219,12 +254,22 @@ func handleCLI(conn net.Conn) {
 	switch command {
 	case "paste":
 		client.pasteFiles()
+	case "pst":
+		client.pasteFiles()
 	case "move":
+		client.moveFiles()
+	case "mv":
 		client.moveFiles()
 	case "list":
 		client.listHistory()
+	case "hist":
+		client.listHistory()
+	case "history":
+		client.listHistory()
 	case "status":
 		client.showStatus()
+	case "help":
+		printHelp()
 	default:
 		if index, err := strconv.Atoi(command); err == nil {
 			client.switchHistory(index)
@@ -234,27 +279,62 @@ func handleCLI(conn net.Conn) {
 	}
 }
 
+const SocketPath = "/tmp/grab.sock"
+
+func startDaemon() (int, error) {
+	executable, _ := os.Executable()
+	cmd := exec.Command(executable, "--daemon-internal")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	failedToSpawnErr := cmd.Start()
+	if failedToSpawnErr != nil {
+		return 0, failedToSpawnErr
+	}
+
+	for i := 0; i < 100; i++ {
+		if _, failedToFindSocketErr := os.Stat(SocketPath); failedToFindSocketErr == nil {
+			return cmd.Process.Pid, nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_ = cmd.Process.Kill()
+	return 0, fmt.Errorf("Daemon failed to initialize socket at %s", SocketPath)
+}
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "--daemon-internal" {
-		daemon.RunServer()
+	var isSelfDaemon bool = len(os.Args) > 1 && os.Args[1] == "--daemon-internal"
+	if isSelfDaemon {
+		daemon.RunServer(SocketPath)
 		return
 	}
 
-	conn, err := net.Dial("unix", daemon.SocketPath)
-	if err != nil {
-		fmt.Println("Starting clipboard daemon...")
-		if err := daemon.Start(); err != nil {
-			fmt.Printf("Fatal Error: %v\n", err)
+	connection, connectionErr := net.Dial("unix", SocketPath)
+
+	if connectionErr != nil {
+		fmt.Println("Connection failed starting clipboard daemon...")
+		pid, startErr := startDaemon()
+
+		if startErr != nil {
+			fmt.Printf("Fatal Error Creating Daemon: %v\n", startErr)
 			return
 		}
-		// Small delay might be needed depending on OS scheduling, but Start() waits for socket
-		conn, err = net.Dial("unix", daemon.SocketPath)
-		if err != nil {
-			fmt.Printf("Could not connect to newly started daemon: %v\n", err)
+
+		fmt.Println("Connecting to daemon...")
+		connection, connectionErr = net.Dial("unix", SocketPath)
+		if connectionErr != nil {
+			fmt.Printf("Could not connect to recently started daemon (PID %d). Attempting Cleaning up...\n", pid)
+
+			p, err := os.FindProcess(pid)
+
+			if err == nil {
+				_ = p.Kill()
+				_, _ = p.Wait()
+			}
 			return
 		}
 	}
-	defer conn.Close()
+	defer connection.Close()
 
-	handleCLI(conn)
+	handleInput(connection)
 }
