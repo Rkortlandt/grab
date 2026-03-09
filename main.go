@@ -217,19 +217,18 @@ func (c *Client) performGrab(args []string) {
 }
 
 func printHelp() {
-	// ANSI Color Codes
-	Yel := "\033[33m" // Yellow
-	Cyn := "\033[36m" // Cyan
-	Grn := "\033[32m" // Green
-	Gra := "\033[90m" // Gray
-	Res := "\033[0m"  // Reset
+	Yel := "\033[33m"
+	Cyn := "\033[36m"
+	Grn := "\033[32m"
+	Gra := "\033[90m"
+	Res := "\033[0m"
 
 	fmt.Print(
 		Yel + "Usage:" + Res + " grab [filenames...] | [history_number] | paste | move | list | status\n\n" +
 			Cyn + "Commands " + Gra + "-------------------------------------------------------------------" + Res + "\n" +
-			"  " + Grn + "[paste]" + Res + ": current selected history to current directory\n" +
-			"  " + Grn + "[move]" + Res + " : moves current selected history to current directory\n" +
-			"  " + Grn + "[list]" + Res + " : lists history\n" +
+			"  " + Grn + "[paste]" + Res + " : current selected history to current directory\n" +
+			"  " + Grn + "[move]" + Res + "  : moves current selected history to current directory\n" +
+			"  " + Grn + "[list]" + Res + "  : lists history\n" +
 			"  " + Grn + "[status]" + Res + ": get status of daemon\n\n" +
 			Cyn + "Inputs " + Gra + "---------------------------------------------------------------------" + Res + "\n" +
 			"  " + Grn + "grab [filenames...]" + Res + ", grabs files into history for use\n" +
