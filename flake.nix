@@ -13,7 +13,7 @@
       # Define the package as a local variable first
       grab-pkg = pkgs.buildGoModule {
         pname = "grab";
-        version = "0.1.0";
+        version = "0.1.1";
         src = ./.;
         vendorHash = null; 
       };

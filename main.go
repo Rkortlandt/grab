@@ -18,16 +18,45 @@ import (
 func init() {
 	gob.Register(comm.ClipboardRequest{})
 	gob.Register(comm.HistoryRequest{})
-	gob.Register(comm.StatusRequest{})
 	gob.Register(comm.SwitchHistoryRequest{})
+	gob.Register(comm.StatusRequest{})
 	gob.Register(comm.GrabRequest{})
 }
 
 func copyFile(src string, dst string) {
 	fmt.Printf("Copying from: %v to: %v\n", src, dst)
-	cmd := exec.Command("cp", src, dst)
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("Error: cp failed for %s. %v\n", src, err)
+	isDir, isDirErr := isDirectory(src)
+
+	if isDirErr != nil {
+		return
+	}
+
+	if isDir {
+		if strings.Contains(src, dst) == false {
+			cmd := exec.Command("cp", src, dst, "-a")
+			if err := cmd.Run(); err != nil {
+				fmt.Printf("Error: cp failed for %s. %v\n", src, err)
+			}
+		}
+	} else {
+		cmd := exec.Command("cp", src, dst)
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("Error: cp failed for %s. %v\n", src, err)
+		}
+	}
+}
+
+func isDirectory(path string) (bool, error) {
+	info, err := os.Stat(path)
+
+	if err != nil {
+		return false, err
+	}
+
+	if info.IsDir() {
+		return true, err
+	} else {
+		return false, err
 	}
 }
 
@@ -38,6 +67,11 @@ func moveFile(src string, dst string) {
 		fmt.Printf("Error: mv failed for %s. %v\n", src, err)
 	}
 }
+
+/*
+func linkFile(src string, dst string) {
+}
+*/
 
 type Client struct {
 	encoder *gob.Encoder
@@ -311,7 +345,8 @@ func main() {
 	connection, connectionErr := net.Dial("unix", SocketPath)
 
 	if connectionErr != nil {
-		fmt.Println("Connection failed starting clipboard daemon...")
+		fmt.Println("Connection failed connecting to existing clipboard daemon...")
+		_ = os.Remove(SocketPath)
 		pid, startErr := startDaemon()
 
 		if startErr != nil {
@@ -322,14 +357,9 @@ func main() {
 		fmt.Println("Connecting to daemon...")
 		connection, connectionErr = net.Dial("unix", SocketPath)
 		if connectionErr != nil {
-			fmt.Printf("Could not connect to recently started daemon (PID %d). Attempting Cleaning up...\n", pid)
+			fmt.Printf("Could not connect to recently started daemon (PID %d). Aborting\n", pid)
+			fmt.Printf("Could not connect to recently started daemon (Error %e)\n", connectionErr)
 
-			p, err := os.FindProcess(pid)
-
-			if err == nil {
-				_ = p.Kill()
-				_, _ = p.Wait()
-			}
 			return
 		}
 	}
